@@ -1,8 +1,7 @@
-from collections import deque
-
 import pygame
 import random
 import math
+from collections import deque
 
 # Pygame initialization
 pygame.init()
@@ -19,281 +18,270 @@ RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 GRAY = (128, 128, 128)
+BROWN = (165, 42, 42)
 
+# Colony Parameters
+INITIAL_COLONY_SIZE = 100
+MAX_COLONY_SIZE = 500
+COLONY_GROWTH_RATE = 0.1  # Rate at which new ants spawn when conditions are met
+INITIAL_FOOD_STORAGE = 1000
+FOOD_CONSUMPTION_RATE = 0.1  # Food consumed per ant per frame
+CRITICAL_FOOD_LEVEL = 300  # Below this, switch to scavenging priority
+OPTIMAL_FOOD_LEVEL = 800  # Above this, switch to building priority
+
+# Ant Parameters
 ANTHILL_POINT = (WIDTH // 2, HEIGHT // 2)
 PHEROMONE_STRENGTH = 100
-ANT_SPEED = 1
-NUM_OF_ANTS = 100
+BASE_ANT_SPEED = 1
 PHEROMONE_DETECTION_RANGE_SQUARED = 200 ** 2
 FOOD_DETECTION_RANGE_SQUARED = 100 ** 2
 FOOD_COLLECTION_RANGE_SQUARED = 10 ** 2
 DIRECTION_TOLERANCE = .7
-
-DIRECTION_CHANGE_COOLDOWN = 5
-MAX_FOOD_AMOUNT = 1
-PHEROMONE_COOLDOWN = 30
-FOOD_SPAWN_RANGE = 50
-FOOD_SPAWN_AMOUNT_PER_CLICK = 40
-SPATIAL_PARTITIONING_COLS = 32
-SPATIAL_PARTITIONING_ROWS = 18
-def spawn_food(x, y, amount):
-    for i in range(amount):
-        food_x = random.uniform(x - FOOD_SPAWN_RANGE, x + FOOD_SPAWN_RANGE)
-        food_y = random.uniform(y - FOOD_SPAWN_RANGE, y + FOOD_SPAWN_RANGE)
-        food_manager.add(int(food_x), int(food_y))
-
-class Manager():
-    def __init__(self, obj_class):
-        self.repository = [[set() for _ in range(SPATIAL_PARTITIONING_COLS)] for _ in range(SPATIAL_PARTITIONING_ROWS)] # list of sets
-        self.obj_class = obj_class
-        self.tile_width = WIDTH // SPATIAL_PARTITIONING_COLS
-        self.tile_height = HEIGHT // SPATIAL_PARTITIONING_ROWS
-
-    def checkOverlap(self, sq_R, Xc, Yc, row, col):
-        # https://www.geeksforgeeks.org/check-if-any-point-overlaps-the-given-circle-and-rectangle/
-        X1 = col * (WIDTH // SPATIAL_PARTITIONING_COLS)
-        Y1 = row * (HEIGHT // SPATIAL_PARTITIONING_ROWS)
-        X2 = (col+1) * (WIDTH // SPATIAL_PARTITIONING_COLS)
-        Y2 = (row+1) * (HEIGHT // SPATIAL_PARTITIONING_ROWS)
-        # check if circle is inside the tile
-
-        # Find the nearest point on the
-        # rectangle to the center of
-        # the circle
-        Xn = max(X1, min(Xc, X2))
-        Yn = max(Y1, min(Yc, Y2))
-
-        # Find the distance between the
-        # nearest point and the center
-        # of the circle
-        # Distance between 2 points,
-        # (x1, y1) & (x2, y2) in
-        # 2D Euclidean space is
-        # ((x1-x2)**2 + (y1-y2)**2)**0.5
-        Dx = Xn - Xc
-        Dy = Yn - Yc
-
-        return (Dx ** 2 + Dy ** 2) <= sq_R
-        # returns true if tile overlaps with ant radius, false otherwise
-    def check(self, x, y, sq_radius):
-        row = y // self.tile_height
-        col = x // self.tile_width
-        if row >= SPATIAL_PARTITIONING_ROWS:
-            row = SPATIAL_PARTITIONING_ROWS - 1
-        if col >= SPATIAL_PARTITIONING_COLS:
-            col = SPATIAL_PARTITIONING_COLS - 1
-
-        q = deque()
-        q.append((int(row), int(col)))
-        checked = set()
-        checked.add((row, col))
-        modifications = ((-1, 0), (0, -1), (1, 0), (0, 1))
-        output = []
-        while q:
-            (row, col) = q.popleft()
-            if self.checkOverlap(sq_radius, x, y, row, col):
-                output.append((self.repository[row][col], (row, col)))
-                checked.add((row, col))
-
-                for mod in modifications:
-                    new_tile = (int(row + mod[0]), int(col + mod[1]))
-                    # The last condition in the line below isn't really valid, but it improves performance and ants still fulfill their goal, so I decided to leave it.
-                    # Just making sure you're aware of that if you decide to play with the code.
-                    if new_tile not in checked and new_tile not in q and new_tile[0] >= 0 and new_tile[0] < SPATIAL_PARTITIONING_ROWS and new_tile[1] >= 0 and new_tile[1] <  SPATIAL_PARTITIONING_COLS and self.repository[new_tile[0]][new_tile[1]]:
-                        q.append(new_tile)
-        return output
-        # returns list of sets
-    def add(self, x, y):
-        row = y // self.tile_height
-        col = x // self.tile_width
-        if row < SPATIAL_PARTITIONING_ROWS and col < SPATIAL_PARTITIONING_COLS:
-            self.repository[row][col].add(self.obj_class(x, y))
-    def remove(self, obj):
-        row = obj.y // self.tile_height
-        col = obj.x // self.tile_width
-        if obj in self.repository[row][col]:
-            self.repository[row][col].remove(obj)
-            return True
-        return False
+FOOD_SPAWN_AMOUNT_PER_CLICK = 50
 
 
+# Building Parameters
+BUILD_RANGE = 30  # Range around nest where building occurs
+BUILD_EFFICIENCY = 0.2  # How quickly building progress increases
+MAX_NEST_SIZE = 200  # Maximum radius of the nest
 
-def sq_dist(pos1, pos2):
-    return (pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2
-# Ant Class
-class Ant:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.speed = ANT_SPEED
-        self.direction = random.uniform(0, 2 * math.pi)  # Random direction
-        self.has_food = False
-        self.food_to_collect = None
-        self.food_amount = 0
-        self.direction_change_cooldown = 0
-        self.pheromone_cooldown = PHEROMONE_COOLDOWN
-    def move(self):
-        if sq_dist((self.x, self.y), ANTHILL_POINT) < ANT_SPEED * 2: # returning food to anthill
-            self.has_food = False
-            self.food_to_collect = None
-            self.food_amount = 0
-            self.direction_change_cooldown = 0
-
-        if self.direction_change_cooldown == 0:
-            if not self.food_to_collect: # doesn't have direction on food
-                for tile, coords in food_manager.check(self.x, self.y, FOOD_DETECTION_RANGE_SQUARED):
-                    if not self.food_to_collect:
-                        for food in tile:
-                            dist_to_food = sq_dist((self.x, self.y), (food.x, food.y))
-                            if self.food_amount < MAX_FOOD_AMOUNT and not self.has_food and dist_to_food < FOOD_DETECTION_RANGE_SQUARED:  # Close to food
-                                self.direction = self.direction_to_point(food.x, food.y)
-                                self.food_to_collect = food
-                                break
-
-            if not self.has_food and self.food_to_collect: # has direction on food but doesn't have food yet
-                dist_to_food = sq_dist((self.x, self.y), (self.food_to_collect.x, self.food_to_collect.y))
-                self.direction = self.direction_to_point(self.food_to_collect.x, self.food_to_collect.y)
-                if dist_to_food < FOOD_COLLECTION_RANGE_SQUARED:
-                    if food_manager.remove(self.food_to_collect):  # Remove food after it's collected
-                        self.food_amount += 1
-                        if self.food_amount == MAX_FOOD_AMOUNT:
-                            self.has_food = True  # Ant takes the food
-                    self.food_to_collect = None
-
-            if not self.food_to_collect and self.has_food:
-                self.direction = self.direction_to_point(ANTHILL_POINT[0], ANTHILL_POINT[1]) + random.uniform(-0.5, 0.5)
+def sq_dist(point1, point2):
+    """Calculate squared distance between two points to avoid unnecessary square roots."""
+    return (point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2
 
 
-            if not self.food_to_collect and not self.has_food:
-                for tile, coords in pheromone_manager.check(self.x, self.y, PHEROMONE_DETECTION_RANGE_SQUARED):
-                    for pheromone in tile:
-                        dist_to_pheromone = sq_dist((self.x, self.y), (pheromone.x, pheromone.y))
-                        direction_to_pheromone = self.direction_to_point(pheromone.x, pheromone.y)
-                        direction_to_anthill = self.direction_to_point(ANTHILL_POINT[0], ANTHILL_POINT[1])
-                        if abs(direction_to_pheromone - direction_to_anthill) > math.pi * 0.7 and dist_to_pheromone < PHEROMONE_DETECTION_RANGE_SQUARED:
-                            self.direction = self.direction_to_point(pheromone.x, pheromone.y)
-                            break
-            self.direction_change_cooldown = DIRECTION_CHANGE_COOLDOWN
-
-        self.direction += random.uniform(-0.2, 0.2)
-        if self.has_food:
-            if self.pheromone_cooldown == 0:
-                pheromone_manager.add(int(self.x), int(self.y))  # Leave a pheromone trail
-                self.pheromone_cooldown = PHEROMONE_COOLDOWN
-            else:
-                self.pheromone_cooldown -= 1
-
-        self.x += self.speed * math.cos(self.direction)
-        self.y += self.speed * math.sin(self.direction)
-        if self.x > WIDTH or self.x < 0 or self.y > HEIGHT or self.y < 0:
-            self.direction -= math.pi
-        if self.direction_change_cooldown > 0: self.direction_change_cooldown -= 1
-
-
-    def direction_to_point(self, x, y):
-        return math.atan2(y - self.y, x - self.x)
+class Colony:
+    def __init__(self):
+        self.food_storage = INITIAL_FOOD_STORAGE
+        self.nest_size = 20  # Initial nest radius
+        self.population = INITIAL_COLONY_SIZE
+        self.building_progress = 0
+        
+    def update(self, ants):
+        # Consume food based on population
+        self.food_storage -= len(ants) * FOOD_CONSUMPTION_RATE
+        
+        # Cap food storage at 0
+        self.food_storage = max(0, self.food_storage)
+        
+        # Update nest size based on building progress
+        if self.building_progress >= 100 and self.nest_size < MAX_NEST_SIZE:
+            self.nest_size += 1
+            self.building_progress = 0
+            
+        # Potentially add new ants if conditions are met
+        if (self.food_storage > OPTIMAL_FOOD_LEVEL and 
+            len(ants) < MAX_COLONY_SIZE and 
+            random.random() < COLONY_GROWTH_RATE):
+            return Ant(ANTHILL_POINT[0], ANTHILL_POINT[1], self)
+        return None
     
-    def draw(self, surface):
-        color = GREEN if self.has_food else WHITE
-        pygame.draw.circle(surface, color, (int(self.x), int(self.y)), 3)
+    def get_ant_speed(self):
+        # Ants can travel further as colony grows
+        speed_multiplier = 1 + (self.nest_size - 20) / 100
+        return BASE_ANT_SPEED * speed_multiplier
 
 
-# Food class
+class Manager:
+    def __init__(self, item_type):
+        self.repository = [[[] for _ in range(HEIGHT // 10)] for _ in range(WIDTH // 10)]
+        self.item_type = item_type
+    
+    def add(self, item):
+        grid_x = item.x // 10
+        grid_y = item.y // 10
+        self.repository[grid_x][grid_y].append(item)
+
+    def remove(self, item):
+        grid_x = item.x // 10
+        grid_y = item.y // 10
+        if item in self.repository[grid_x][grid_y]:
+            self.repository[grid_x][grid_y].remove(item)
+
+# Updated spawn_food to pass food_manager as a parameter
+def spawn_food(food_manager, x, y, amount):
+    for _ in range(amount):
+        food = Food(x, y)
+        food_manager.add(food)
+
 class Food:
     def __init__(self, x, y):
         self.x = x
         self.y = y
+        self.amount = random.randint(5, 20)  # Example amount of food
 
     def draw(self, surface):
-        pygame.draw.circle(surface, RED, (self.x, self.y), 1)
+        pygame.draw.circle(surface, GREEN, (self.x, self.y), 5)
 
-
-# Pheromone class
 class Pheromone:
-    def __init__(self, x, y):
+    def __init__(self, x, y, strength=PHEROMONE_STRENGTH):
         self.x = x
         self.y = y
-        self.strength = PHEROMONE_STRENGTH  # Pheromone strength (fades over time)
+        self.strength = strength
 
     def decay(self):
-        if self.strength > 0:
-            self.strength -= 1
+        self.strength -= 1  # Example decay
+        if self.strength < 0:
+            self.strength = 0
+
     def draw(self, surface):
-        pygame.draw.circle(surface, (0, 0, int(self.strength / PHEROMONE_STRENGTH * 255)), (self.x, self.y), 3)
+        if self.strength > 0:
+            pygame.draw.circle(surface, BLUE, (self.x, self.y), 3, 1)
 
-def draw_grid():
-    for row in range(SPATIAL_PARTITIONING_ROWS):
-        tile_height = HEIGHT // SPATIAL_PARTITIONING_ROWS
-        tile_width = WIDTH // SPATIAL_PARTITIONING_COLS
-        for col in range(SPATIAL_PARTITIONING_COLS):
-            pygame.draw.rect(screen, GRAY, (col * tile_width, row * tile_height, tile_width, tile_height), width=1)
+class Ant:
+    def __init__(self, x, y, colony):
+        self.x = x
+        self.y = y
+        self.colony = colony
+        self.speed = colony.get_ant_speed()
+        self.role = 'builder' if random.random() < 0.3 else 'scavenger'
+        self.building = False
+        self.has_food = False
+        self.target = None  # Target for movement, such as food or the nest
 
-def draw_radius():
-    for ant in ants:
-        pygame.draw.circle(screen, WHITE, (ant.x, ant.y), radius=math.sqrt(FOOD_DETECTION_RANGE_SQUARED), width=1)
-def draw_tile(coords):
-    tile_height = HEIGHT // SPATIAL_PARTITIONING_ROWS
-    tile_width = WIDTH // SPATIAL_PARTITIONING_COLS
-    pygame.draw.rect(screen, GREEN, (coords[1] * tile_width, coords[0] * tile_height, tile_width, tile_height), width=3)
+    def move(self, food_manager):
+        # Update speed based on colony size
+        self.speed = self.colony.get_ant_speed()
+        
+        # Check if role should change based on colony needs
+        self.update_role()
+        
+        # Food detection for scavengers
+        if self.role == 'scavenger' and not self.has_food:
+            self.find_food(food_manager)
+        
+        # Movement logic for scavengers
+        if self.has_food:
+            # Return to anthill if carrying food
+            self.move_toward(ANTHILL_POINT)
+            if sq_dist((self.x, self.y), ANTHILL_POINT) < FOOD_COLLECTION_RANGE_SQUARED:
+                self.colony.food_storage += 20  # Example amount per food return
+                self.has_food = False
+        else:
+            # Move toward target food if detected
+            if self.target:
+                self.move_toward((self.target.x, self.target.y))
+                if sq_dist((self.x, self.y), (self.target.x, self.target.y)) < FOOD_COLLECTION_RANGE_SQUARED:
+                    self.has_food = True
+                    food_manager.remove(self.target)
+                    self.target = None
+            else:
+                # Random movement if no food found
+                self.x += random.choice([-1, 0, 1]) * self.speed
+                self.y += random.choice([-1, 0, 1]) * self.speed
+
+        # Builders occasionally build near the nest
+        if self.role == 'builder' and not self.has_food:
+            if random.random() < 0.3:
+                self.building = True
+                self.build()
+                return
+        self.building = False
+
+    def move_toward(self, target_point):
+        """Move towards a specific point."""
+        dx, dy = target_point[0] - self.x, target_point[1] - self.y
+        dist = math.sqrt(dx ** 2 + dy ** 2)
+        if dist != 0:
+            self.x += (dx / dist) * self.speed
+            self.y += (dy / dist) * self.speed
+
+    def find_food(self, food_manager):
+        """Look for food within detection range."""
+        for row in food_manager.repository:
+            for tile in row:
+                for food in tile:
+                    if sq_dist((self.x, self.y), (food.x, food.y)) < FOOD_DETECTION_RANGE_SQUARED:
+                        self.target = food
+                        return
+
+    def update_role(self):
+        if self.colony.food_storage < CRITICAL_FOOD_LEVEL:
+            # Emergency - everyone becomes a scavenger
+            self.role = 'scavenger'
+        elif self.colony.food_storage > OPTIMAL_FOOD_LEVEL:
+            # Plenty of food - maintain builder ratio
+            if random.random() < 0.1:  # Small chance to switch roles
+                self.role = 'builder' if random.random() < 0.3 else 'scavenger'
+                
+    def build(self):
+        if sq_dist((self.x, self.y), ANTHILL_POINT) < BUILD_RANGE ** 2:
+            self.colony.building_progress += BUILD_EFFICIENCY
+            
+    def draw(self, surface):
+        color = GREEN if self.has_food else (BROWN if self.role == 'builder' else WHITE)
+        pygame.draw.circle(surface, color, (int(self.x), int(self.y)), 3)
 
 
 
-clock = pygame.time.Clock()
-food_manager = Manager(Food)
-pheromone_manager = Manager(Pheromone)
+# Modified main game loop
+def main():
+    clock = pygame.time.Clock()
+    food_manager = Manager(Food)
+    pheromone_manager = Manager(Pheromone)
+    
+    # Initialize colony
+    colony = Colony()
+    ants = [Ant(ANTHILL_POINT[0], ANTHILL_POINT[1], colony) for _ in range(INITIAL_COLONY_SIZE)]
+    
+    # Spawning initial food
+    spawn_food(food_manager, 480, 150, FOOD_SPAWN_AMOUNT_PER_CLICK * 3)
+    spawn_food(food_manager, 480, 930, FOOD_SPAWN_AMOUNT_PER_CLICK * 3)
+    
+    # Main Loop
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                (x, y) = pygame.mouse.get_pos()
+                spawn_food(food_manager, x, y, FOOD_SPAWN_AMOUNT_PER_CLICK)
+                
+        screen.fill(BLACK)
+        
+        # Update colony and potentially add new ants
+        new_ant = colony.update(ants)
+        if new_ant:
+            ants.append(new_ant)
+            
+        # Draw nest with size based on colony growth
+        pygame.draw.circle(screen, YELLOW, ANTHILL_POINT, radius=colony.nest_size)
+        
+        # Draw food storage indicator
+        food_height = (colony.food_storage / INITIAL_FOOD_STORAGE) * 100
+        pygame.draw.rect(screen, GREEN, (10, HEIGHT - food_height - 10, 20, food_height))
+        
+        # Draw building progress
+        build_height = (colony.building_progress / 100) * 50
+        pygame.draw.rect(screen, BROWN, (40, HEIGHT - build_height - 10, 20, build_height))
+        
+        # Update and draw pheromones
+        for row in pheromone_manager.repository:
+            for tile in row:
+                for pheromone in tile.copy():
+                    pheromone.decay()
+                    if pheromone.strength == 0:
+                        pheromone_manager.remove(pheromone)
+                    else:
+                        pheromone.draw(screen)
+        
+        # Move and draw ants
+        for ant in ants:
+            ant.move(food_manager)
+            ant.draw(screen)
 
-ants = [Ant(ANTHILL_POINT[0], ANTHILL_POINT[1]) for _ in range(NUM_OF_ANTS)]
+        
+        # Draw food
+        for row in food_manager.repository:
+            for tile in row:
+                for food in tile:
+                    food.draw(screen)
+        
+        pygame.display.flip()
+        clock.tick(60)
+    
+    pygame.quit()
 
-# Spawning initial food
-spawn_food(480, 150, FOOD_SPAWN_AMOUNT_PER_CLICK * 3)
-spawn_food(480, 930, FOOD_SPAWN_AMOUNT_PER_CLICK * 3)
-
-
-
-# Main Loop
-running = True
-while running:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            (x, y) = pygame.mouse.get_pos()
-            spawn_food(x, y, FOOD_SPAWN_AMOUNT_PER_CLICK)
-    screen.fill(BLACK)
-    # Draw pheromones
-    for row in pheromone_manager.repository:
-        for tile in row:
-            for pheromone in tile:
-                pheromone.decay()
-                if pheromone.strength == 0:
-                    pheromone_manager.remove(pheromone)
-                    break
-                else:
-                    pheromone.draw(screen)
-
-    # Draw frame
-    # pygame.draw.rect(screen, WHITE, (0, 0, width, height), width=1)
-  
-    pygame.draw.circle(screen, YELLOW, ANTHILL_POINT, radius=20)
-
-    # draw_grid()
-
-    # Move and draw ants
-    for ant in ants:
-        ant.move()
-        ant.draw(screen)
-    for ant in ants:
-        ant.move()
-        ant.draw(screen)
-
-    # Draw food
-    for row in food_manager.repository:
-        for tile in row:
-            for food in tile:
-                food.draw(screen)
-    pygame.display.flip()
-    clock.tick(60)
-
-pygame.quit()
-
-
+if __name__ == "__main__":
+    main()
